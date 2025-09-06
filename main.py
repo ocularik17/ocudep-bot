@@ -1,14 +1,11 @@
-from keep_alive import keep_alive
-keep_alive()
-
 import telebot
 from telebot import types
 import sqlite3
 import random
 import time
 
-BOT_TOKEN = "твой_токен"
-CREATOR_ID = 1197889640
+BOT_TOKEN = "7912698597:AAF-m1I0QTNJ7d8FeEYtC7TVbw6eyc5J4yI"
+CREATOR_ID = 1197898604
 ADMIN_PASSWORD = "qwerty"
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -29,220 +26,345 @@ cooldowns = {}
 
 def get_rank(points):
     if points < 1000:
-        return "Новичок"
+        return "🐣 Новичок"
     elif points < 5000:
-        return "Бывалый"
+        return "🪖 Бывалый"
     elif points < 15000:
-        return "Эксперт"
+        return "🎯 Эксперт"
     elif points < 40000:
-        return "Мастер"
+        return "🧠 Мастер"
     elif points < 80000:
-        return "Гуру"
+        return "🔮 Гуру"
     else:
-        return "Бог"
-    
+        return "👑 Бог"
+
+def show_main_menu(message):
+    uid = message.from_user.id
+    state = user_states.setdefault(uid, {})
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("🎯 Профиль", "🎰 Рулетка")
+    markup.add("🏆 Лидерборд", "📊 Ранг")
+    markup.add("⚙️ Настройки", "🛠 Админ")
+
+    if state.get("first_entry"):
+        text = "👋 Добро пожаловать в OCUDEP! Выбери действие:"
+        state["first_entry"] = False
+    else:
+        text = "🏢 Главный офис OCUDEP"
+
+    state["left_section"] = False
+    bot.send_message(message.chat.id, text, reply_markup=markup)
+
+def show_roulette_menu(message, uid, deped=False, custom_text=None, hide_dep=False):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    if not hide_dep:
+        btn_text = "💸 Додеп" if deped else "💸 Депнуть"
+        markup.add(btn_text)
+    markup.add("⬅️ Ливнуть")
+    text = custom_text or ("🎰 Добро пожаловать в рулетку!\nВыбери действие:" if not deped else "🎰 Желаете продолжить?")
+    bot.send_message(message.chat.id, text, reply_markup=markup)
+
 @bot.message_handler(commands=['start'])
-def start(message):
-    user_id = message.from_user.id
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+def handle_start(message):
+    uid = message.from_user.id
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (uid,))
     user = cursor.fetchone()
-
+    user_states[uid] = {'reg': bool(user), 'first_entry': True}
     if user:
-        send_main_menu(message.chat.id)
+        show_main_menu(message)
     else:
-        bot.send_message(message.chat.id, "👋 Добро пожаловать! Введи свой ник:")
-        user_states[user_id] = "awaiting_nickname"
-
-def send_main_menu(chat_id):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("📄 Профиль", "🎰 Рулетка")
-    markup.row("📈 Лидерборд", "⚙️ Настройки")
-    markup.row("🔒 Админ")
-    bot.send_message(chat_id, "📍 Главное меню:", reply_markup=markup)
-
-@bot.message_handler(func=lambda m: user_states.get(m.from_user.id) == "awaiting_nickname")
-def handle_nickname(message):
-    nickname = message.text.strip()
-    user_id = message.from_user.id
-    cursor.execute("INSERT INTO users (user_id, nickname) VALUES (?, ?)", (user_id, nickname))
-    conn.commit()
-    user_states.pop(user_id, None)
-    bot.send_message(CREATOR_ID, f"🆕 Новый пользователь: {nickname} ({user_id})")
-    send_main_menu(message.chat.id)
-
-@bot.message_handler(func=lambda m: m.text == "📄 Профиль")
-def show_profile(message):
-    user_id = message.from_user.id
-    cursor.execute("SELECT nickname, points FROM users WHERE user_id = ?", (user_id,))
-    user = cursor.fetchone()
-    if user:
-        nickname, points = user
-        rank = get_rank(points)
-        bot.send_message(message.chat.id, f"👤 Ник: {nickname}\n💰 Очки: {points}\n🏅 Ранг: {rank}")
-    else:
-        bot.send_message(message.chat.id, "❌ Ты не зарегистрирован.")
-
-@bot.message_handler(func=lambda m: m.text == "🎰 Рулетка")
-def ruletka_menu(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("- Депнуть", "- Додеп", "- Ливнуть")
-    bot.send_message(message.chat.id, "🎰 Выбери действие:", reply_markup=markup)
-
-@bot.message_handler(func=lambda m: m.text in ["- Депнуть", "- Додеп"])
-def handle_deposit(message):
-    user_id = message.from_user.id
-    now = time.time()
-    if cooldowns.get(user_id, 0) > now:
-        bot.send_message(message.chat.id, "⏳ Подожди немного перед следующей попыткой.")
-        return
-    cooldowns[user_id] = now + 3
-
-    frames = ["🎰 ▓▓▓", "🎰 ▒▒▒", "🎰 ░░░", "🎰 🎉🎉🎉"]
-    for frame in frames:
-        bot.send_message(message.chat.id, frame)
-        time.sleep(0.5)
-
-    result = random.randint(50, 500)
-    cursor.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (result, user_id))
-    conn.commit()
-    bot.send_message(message.chat.id, f"🎉 Ты получил {result} очков!")
-    send_main_menu(message.chat.id)
-
-@bot.message_handler(func=lambda m: m.text == "📈 Лидерборд")
-def show_leaderboard(message):
-    cursor.execute("SELECT nickname, points FROM users ORDER BY points DESC LIMIT 10")
-    top_users = cursor.fetchall()
-    text = "🏆 Топ-10 игроков:\n\n"
-    for i, (nickname, points) in enumerate(top_users, start=1):
-        rank = get_rank(points)
-        text += f"{i}. {nickname} — {points} очков ({rank})\n"
-    bot.send_message(message.chat.id, text)
-
+        user_states[uid]["awaiting_nickname"] = True
+        bot.send_message(uid, "👤 Введи свой ник для регистрации:")
     return
-@bot.message_handler(func=lambda m: m.text == "⚙️ Настройки")
-def settings_menu(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("✏️ Сменить ник", "- Ливнуть")
-    bot.send_message(message.chat.id, "⚙️ Настройки:", reply_markup=markup)
 
-@bot.message_handler(func=lambda m: m.text == "✏️ Сменить ник")
-def change_nickname(message):
-    bot.send_message(message.chat.id, "📝 Введи новый ник:")
-    user_states[message.from_user.id] = "awaiting_nickname"
+@bot.message_handler(commands=['ruletka'])
+def cmd_ruletka(message):
+    if message.chat.type in ["group", "supergroup"]:
+        show_roulette_menu(message, message.from_user.id, hide_dep=True)
+    return
 
-@bot.message_handler(func=lambda m: m.text == "🔒 Админ")
-def admin_entry(message):
-    bot.send_message(message.chat.id, "🔐 Введи пароль:")
-    user_states[message.from_user.id] = "awaiting_password"
-
-@bot.message_handler(func=lambda m: user_states.get(m.from_user.id) == "awaiting_password")
-def handle_admin_password(message):
-    user_id = message.from_user.id
-    if message.text == ADMIN_PASSWORD:
-        user_states[user_id] = "admin_panel"
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.row("📋 Управление", "🚫 Забанить")
-        markup.row("- Ливнуть")
-        bot.send_message(message.chat.id, "✅ Админ доступ открыт:", reply_markup=markup)
+@bot.message_handler(commands=['profil'])
+def cmd_profil(message):
+    uid = message.from_user.id
+    cursor.execute("SELECT nickname, points FROM users WHERE user_id = ?", (uid,))
+    user = cursor.fetchone()
+    if user:
+        rank = get_rank(user[1])
+        bot.send_message(message.chat.id, f"👤 Ник: {user[0]}\n💰 Очки: {user[1]}\n🏅 Статус: {rank}")
     else:
-        bot.send_message(message.chat.id, "❌ Неверный пароль.")
-        user_states.pop(user_id, None)
+        bot.send_message(message.chat.id, "❌ Ты не зарегистрирован. Напиши /start")
+    return
 
-@bot.message_handler(func=lambda m: m.text == "📋 Управление")
-def admin_manage(message):
-    bot.send_message(message.chat.id, "👤 Введи ник пользователя:")
-    user_states[message.from_user.id] = "admin_select_user"
-
-@bot.message_handler(func=lambda m: user_states.get(m.from_user.id) == "admin_select_user")
-def admin_select_user(message):
-    nickname = message.text.strip()
-    cursor.execute("SELECT user_id FROM users WHERE nickname = ?", (nickname,))
-    result = cursor.fetchone()
-    if result:
-        user_states[message.from_user.id] = f"admin_balance_change:{result[0]}"
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.row("+100", "+200", "-100", "-200")
-        markup.row("✏️ Ввести вручную", "- Ливнуть")
-        bot.send_message(message.chat.id, f"💰 Управление очками для {nickname}:", reply_markup=markup)
+@bot.message_handler(commands=['leaderboard'])
+def cmd_leaderboard(message):
+    cursor.execute("SELECT nickname, points FROM users ORDER BY points DESC LIMIT 10")
+    top = cursor.fetchall()
+    if top:
+        text = "🏆 Лидеры OCUDEP:\n"
+        for i, (nick, pts) in enumerate(top, 1):
+            rank = get_rank(pts)
+            text += f"{i}. {nick} — {pts} очков ({rank})\n"
+        bot.send_message(message.chat.id, text)
     else:
-        bot.send_message(message.chat.id, "❌ Пользователь не найден.")
+        bot.send_message(message.chat.id, "❌ Лидерборд пуст.")
+    return
 
-@bot.message_handler(func=lambda m: user_states.get(m.from_user.id, "").startswith("admin_balance_change:"))
-def admin_change_balance(message):
-    admin_id = message.from_user.id
-    target_id = int(user_states[admin_id].split(":")[1])
-    delta = 0
-    if message.text == "+100":
-        delta = 100
-    elif message.text == "+200":
-        delta = 200
-    elif message.text == "-100":
-        delta = -100
-    elif message.text == "-200":
-        delta = -200
-    elif message.text == "✏️ Ввести вручную":
-        bot.send_message(admin_id, "🔢 Введи новое значение:")
-        user_states[admin_id] = f"admin_manual_balance:{target_id}"
-        return
-    else:
-        bot.send_message(admin_id, "❌ Неизвестная команда.")
+@bot.message_handler(func=lambda msg: True)
+def handle_message(message):
+    uid = message.from_user.id
+    text = message.text.strip()
+    state = user_states.setdefault(uid, {})
+    chat_type = message.chat.type
+    is_private = chat_type == "private"
+
+    if text == "⬅️ Ливнуть":
+        state.clear()
+        show_main_menu(message)
+        return    
+    if text == "🛠 Админ" and is_private:
+        if state.get("admin_access"):
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add("🧩 Управление", "🚫 Забанить", "⬅️ Ливнуть")
+            bot.send_message(uid, "✅ Вы уже авторизованы.", reply_markup=markup)
+        else:
+            state["awaiting_admin_password"] = True
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add("⬅️ Ливнуть")
+            bot.send_message(uid, "🔐 Введите пароль для входа:", reply_markup=markup)
         return
 
-    cursor.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (delta, target_id))
-    conn.commit()
-    bot.send_message(admin_id, f"✅ Баланс обновлён на {delta} очков.")
-    user_states.pop(admin_id, None)
+    if state.get("awaiting_admin_password"):
+        if text == ADMIN_PASSWORD:
+            state["admin_access"] = True
+            state["awaiting_admin_password"] = False
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add("🧩 Управление", "🚫 Забанить", "⬅️ Ливнуть")
+            bot.send_message(uid, "✅ Доступ к админке открыт.", reply_markup=markup)
+        else:
+            state["awaiting_admin_password"] = False
+            bot.send_message(uid, "🚫 Неверный пароль.")
+            show_main_menu(message)
+        return
 
-@bot.message_handler(func=lambda m: user_states.get(m.from_user.id, "").startswith("admin_manual_balance:"))
-def admin_manual_balance(message):
-    admin_id = message.from_user.id
-    target_id = int(user_states[admin_id].split(":")[1])
-    try:
-        new_value = int(message.text.strip())
-        cursor.execute("UPDATE users SET points = ? WHERE user_id = ?", (new_value, target_id))
+    if state.get("awaiting_nickname"):
+        nickname = text
+        cursor.execute("INSERT INTO users (user_id, nickname) VALUES (?, ?)", (uid, nickname))
         conn.commit()
-        bot.send_message(admin_id, f"✅ Баланс установлен: {new_value} очков.")
-    except:
-        bot.send_message(admin_id, "❌ Неверный формат.")
-    user_states.pop(admin_id, None)
-
-@bot.message_handler(func=lambda m: m.text == "🚫 Забанить")
-def admin_ban(message):
-    bot.send_message(message.chat.id, "👤 Введи ник для бана:")
-    user_states[message.from_user.id] = "admin_ban_confirm"
-
-@bot.message_handler(func=lambda m: user_states.get(m.from_user.id) == "admin_ban_confirm")
-def handle_ban(message):
-    nickname = message.text.strip()
-    cursor.execute("SELECT user_id FROM users WHERE nickname = ?", (nickname,))
-    result = cursor.fetchone()
-    if result:
-        cursor.execute("DELETE FROM users WHERE user_id = ?", (result[0],))
-        conn.commit()
-        bot.send_message(message.chat.id, f"🚫 Пользователь {nickname} забанен.")
-    else:
-        bot.send_message(message.chat.id, "❌ Пользователь не найден.")
-    user_states.pop(message.from_user.id, None)
-
-@bot.message_handler(func=lambda m: m.text == "- Ливнуть")
-def leave(message):
-    user_states.pop(message.from_user.id, None)
-    send_main_menu(message.chat.id)
-
-@bot.message_handler(func=lambda message: True)
-def handle_all_messages(message):
-    user_id = message.from_user.id
-    state = user_states.get(user_id)
-    allowed_states = [
-        "awaiting_nickname",
-        "awaiting_password",
-        "admin_select_user",
-        "admin_balance_change",
-        "admin_ban_confirm",
-        "admin_manual_balance"
-    ]
-    if state in allowed_states:
+        state["awaiting_nickname"] = False
+        bot.send_message(CREATOR_ID, f"🆕 Новый пользователь зарегистрирован:\n👤 Ник: {nickname}\n🆔 ID: {uid}")
+        bot.send_message(uid, f"✅ Ник '{nickname}' зарегистрирован!")
+        show_main_menu(message)
         return
-    bot.send_message(message.chat.id, "🚫 Писать сюда нельзя. Используй кнопки.")
+
+    if state.get("awaiting_new_nickname"):
+        new_nick = text
+        cursor.execute("UPDATE users SET nickname = ? WHERE user_id = ?", (new_nick, uid))
+        conn.commit()
+        state["awaiting_new_nickname"] = False
+        bot.send_message(uid, f"✅ Ник изменён на '{new_nick}'")
+        show_main_menu(message)
+        return
+
+    if text == "🚫 Забанить" and is_private and state.get("admin_access"):
+        cursor.execute("SELECT nickname FROM users ORDER BY nickname")
+        users = cursor.fetchall()
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        for u in users:
+            markup.add(u[0])
+        markup.add("⬅️ Ливнуть")
+        state["awaiting_ban_target"] = True
+        bot.send_message(uid, "🚫 Выбери пользователя для удаления:", reply_markup=markup)
+        return
+
+    if state.get("awaiting_ban_target"):
+        if text == "⬅️ Ливнуть":
+            state["awaiting_ban_target"] = False
+            show_main_menu(message)
+            return
+
+        cursor.execute("SELECT user_id FROM users WHERE nickname = ?", (text,))
+        target = cursor.fetchone()
+        if target:
+            state["ban_confirm_id"] = target[0]
+            state["ban_confirm_nick"] = text
+            state["awaiting_ban_target"] = False
+            state["awaiting_ban_confirm"] = True
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add("✅ Подтвердить", "⬅️ Ливнуть")
+            bot.send_message(uid, f"❗ Выбран: {text}\nНажми 'Подтвердить' для удаления.", reply_markup=markup)
+        else:
+            bot.send_message(uid, "❌ Пользователь не найден.")
+            state["awaiting_ban_target"] = False
+        return
+
+    if state.get("awaiting_ban_confirm"):
+        if text == "⬅️ Ливнуть":
+            state["awaiting_ban_confirm"] = False
+            show_main_menu(message)
+            return
+
+        if text == "✅ Подтвердить":
+            target_id = state.get("ban_confirm_id")
+            nickname = state.get("ban_confirm_nick")
+            cursor.execute("DELETE FROM users WHERE user_id = ?", (target_id,))
+            conn.commit()
+            bot.send_message(uid, f"🚫 Пользователь '{nickname}' удалён из базы.")
+            state["awaiting_ban_confirm"] = False
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add("🧩 Управление", "🚫 Забанить", "⬅️ Ливнуть")
+            bot.send_message(uid, "🔧 Админка:", reply_markup=markup)
+        return
+
+    if text == "🧩 Управление" and is_private and state.get("admin_access"):
+        cursor.execute("SELECT nickname FROM users ORDER BY nickname")
+        users = cursor.fetchall()
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        for u in users:
+            markup.add(u[0])
+        markup.add("⬅️ Ливнуть")
+        state["awaiting_balance_target"] = True
+        bot.send_message(uid, "👥 Выбери пользователя для изменения баланса:", reply_markup=markup)
+        return
+
+    if state.get("awaiting_balance_target"):
+        cursor.execute("SELECT user_id FROM users WHERE nickname = ?", (text,))
+        target = cursor.fetchone()
+        if target:
+            state["balance_target_id"] = target[0]
+            state["awaiting_balance_target"] = False
+            state["awaiting_balance_change"] = True
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add("+100", "+200", "+300")
+            markup.add("-100", "-200", "-300")
+            markup.add("⬅️ Ливнуть")
+            bot.send_message(uid, f"✏️ Выбран: {text}\nВыбери изменение или введи новое значение:", reply_markup=markup)
+        else:
+            bot.send_message(uid, "❌ Пользователь не найден.")
+            state["awaiting_balance_target"] = False
+        return    
+    if state.get("awaiting_balance_change"):
+        target_id = state.get("balance_target_id")
+        if text in ["+100", "+200", "+300", "-100", "-200", "-300"]:
+            delta = int(text)
+            cursor.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (delta, target_id))
+            conn.commit()
+            bot.send_message(uid, f"✅ Баланс изменён на {('+' if delta > 0 else '')}{delta} очков.")
+        else:
+            try:
+                new_value = int(text)
+                cursor.execute("UPDATE users SET points = ? WHERE user_id = ?", (new_value, target_id))
+                conn.commit()
+                bot.send_message(uid, f"✅ Баланс установлен: {new_value} очков.")
+            except:
+                bot.send_message(uid, "⚠️ Введите корректное число или выбери кнопку.")
+        state["awaiting_balance_change"] = False
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.add("🧩 Управление", "🚫 Забанить", "⬅️ Ливнуть")
+        bot.send_message(uid, "🔧 Админка:", reply_markup=markup)
+        return
+
+    if text == "🎰 Рулетка" and is_private:
+        show_roulette_menu(message, uid, deped=state.get('deped_in_session', False))
+        return
+
+    if text in ["💸 Депнуть", "💸 Додеп"] and is_private:
+        now = time.time()
+        last = cooldowns.get(uid, 0)
+        if now - last < 3:
+            bot.send_message(uid, "⏳ Подожди немного перед следующим депом...")
+            return
+
+        cooldowns[uid] = now
+        state['deped_in_session'] = True
+
+        bot.send_message(uid, "🎰 Крутим рулетку...", reply_markup=types.ReplyKeyboardRemove())
+
+        frames = ["🔄 ░░░░░░░░░░", "🔄 █░░░░░░░░", "🔄 ██░░░░░░", "🔄 ███░░░░", "🔄 ████░░", "🔄 ██████"]
+        msg = bot.send_message(uid, frames[0])
+        for frame in frames[1:]:
+            time.sleep(0.4)
+            bot.edit_message_text(chat_id=uid, message_id=msg.message_id, text=frame)
+
+        jackpot = random.randint(1, 200) == 1
+        if jackpot:
+            roll = 5000
+            result = "💥 ДЖЕКПОТ! +5000 очков!"
+        else:
+            roll = random.randint(1, 100)
+            result = f"🎲 Выпало: {roll}\n💰 Зачислено +{roll} очков!"
+
+        cursor.execute("UPDATE users SET points = points + ? WHERE user_id = ?", (roll, uid))
+        conn.commit()
+        time.sleep(0.5)
+        bot.edit_message_text(chat_id=uid, message_id=msg.message_id, text=result)
+
+        time.sleep(3)
+        show_roulette_menu(message, uid, deped=True)
+        return
+
+    if text == "🏆 Лидерборд" and is_private:
+        cursor.execute("SELECT nickname, points FROM users ORDER BY points DESC LIMIT 10")
+        top = cursor.fetchall()
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.add("⬅️ Ливнуть")
+        if top:
+            text = "🏆 Лидеры OCUDEP:\n"
+            for i, (nick, pts) in enumerate(top, 1):
+                rank = get_rank(pts)
+                text += f"{i}. {nick} — {pts} очков ({rank})\n"
+            bot.send_message(uid, text, reply_markup=markup)
+        else:
+            bot.send_message(uid, "❌ Лидерборд пуст.", reply_markup=markup)
+        return
+
+    if text == "📊 Ранг" and is_private:
+        cursor.execute("SELECT points FROM users WHERE user_id = ?", (uid,))
+        user = cursor.fetchone()
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.add("⬅️ Ливнуть")
+        if user:
+            points = user[0]
+            rank = get_rank(points)
+            rank_info = (
+                "📊 Градации OCUDEP:\n\n"
+                "🐣 Новичок — 0–999 очков\n"
+                "🪖 Бывалый — 1000–4999\n"
+                "🎯 Эксперт — 5000–14999\n"
+                "🧠 Мастер — 15000–39999\n"
+                "🔮 Гуру — 40000–79999\n"
+                "👑 Бог — 80000–100000\n\n"
+                f"🏅 Твой ранг: {rank} ({points} очков)"
+            )
+            bot.send_message(uid, rank_info, reply_markup=markup)
+        else:
+            bot.send_message(uid, "❌ Ты не зарегистрирован. Напиши /start", reply_markup=markup)
+        return
+
+    if text == "⚙️ Настройки" and is_private:
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.add("✏️ Сменить ник", "⬅️ Ливнуть")
+        bot.send_message(uid, "⚙️ Настройки профиля:", reply_markup=markup)
+        return
+
+    if text == "✏️ Сменить ник" and is_private:
+        state["awaiting_new_nickname"] = True
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.add("⬅️ Ливнуть")
+        bot.send_message(uid, "✏️ Введите новый ник:", reply_markup=markup)
+        return
+
+    if text == "🎯 Профиль" and is_private:
+        cursor.execute("SELECT nickname, points FROM users WHERE user_id = ?", (uid,))
+        user = cursor.fetchone()
+        if user:
+            rank = get_rank(user[1])
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add("⬅️ Ливнуть")
+            bot.send_message(uid, f"👤 Ник: {user[0]}\n💰 Очки: {user[1]}\n🏅 Статус: {rank}", reply_markup=markup)
+        else:
+            bot.send_message(uid, "❌ Ты не зарегистрирован. Напиши /start")
+        return
+
+    bot.send_message(uid, "❓ Неизвестная команда.")
 
 bot.polling()
